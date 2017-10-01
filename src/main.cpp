@@ -102,7 +102,7 @@ int main() {
           double throttle = j[1]["throttle"];  
 
           //predict the state of the vehicle after the delay time
-          double dt = 0.1 + 0.02; // 100 ms actuator delay - 20 ms typical MPC cycle time
+          double dt = 0.1 + 0.02; // 100 ms actuator delay + 20 ms typical MPC cycle time
  
           x += v * dt * cos(psi);
           y += v * dt * sin(psi);
@@ -129,8 +129,8 @@ int main() {
           
           auto coeffs = polyfit(ptsx_eigen, ptsy_eigen, 3);
 
-          // evaluate cte and epsi
-          double cte = coeffs[0]; // approximation, as cte is actually the shortest distance to the polynomial
+          // approximate cte and epsi
+          double cte = coeffs[0]; 
           double epsi = -atan(coeffs[1]);
 
           // build the state vector
@@ -197,6 +197,7 @@ int main() {
             this_thread::sleep_for(chrono::milliseconds(desired_mpc_cycle_time_ms - duration));
           }*/
 
+
           // Latency
           // The purpose is to mimic real driving conditions where
           // the car does actuate the commands instantly.
@@ -206,6 +207,7 @@ int main() {
           //
           // NOTE: REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
           // SUBMITTING.
+
           this_thread::sleep_for(chrono::milliseconds(100)); 
 
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
