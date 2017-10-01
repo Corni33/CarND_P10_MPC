@@ -71,9 +71,13 @@ int main() {
   // MPC is initialized here!
   MPC mpc;
   const double Lf = 2.67;
+  const int desired_mpc_cycle_time_ms = 0.15;
 
-  h.onMessage([&mpc, &Lf](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  h.onMessage([&mpc, &Lf, &desired_mpc_cycle_time_ms](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
+
+    auto t1 = std::chrono::high_resolution_clock::now();
+
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
     // The 2 signifies a websocket event
@@ -84,9 +88,7 @@ int main() {
       if (s != "") {
         auto j = json::parse(s);
         string event = j[0].get<string>();
-        if (event == "telemetry") {
-
-          auto t1 = std::chrono::high_resolution_clock::now();
+        if (event == "telemetry") {          
 
           // j[1] is the data JSON object
           vector<double> ptsx = j[1]["ptsx"];
@@ -95,9 +97,17 @@ int main() {
           double y = j[1]["y"];
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
-
+          v *= 0.44704; // convert to m/s
           double delta = j[1]["steering_angle"];
-          double throttle = j[1]["throttle"];          
+          double throttle = j[1]["throttle"];  
+
+          //predict the state of the vehicle after the delay time
+          double dt = 0.1 + 0.02; // 100 ms actuator delay - 20 ms typical MPC cycle time
+ 
+          x += v * dt * cos(psi);
+          y += v * dt * sin(psi);
+          psi += v * (-delta) / Lf * dt;
+          v += dt * throttle;
 
           //transform waypoints into vehicle coordinates 
           double sin_veh = sin(psi);
@@ -119,24 +129,15 @@ int main() {
           
           auto coeffs = polyfit(ptsx_eigen, ptsy_eigen, 3);
 
-          // evaluate current cte and epsi
-          double cte = coeffs[0];
+          // evaluate cte and epsi
+          double cte = coeffs[0]; // approximation, as cte is actually the shortest distance to the polynomial
           double epsi = -atan(coeffs[1]);
-
-          //predict the state vector over the delay time
-          double dt = 0.1;
-          double x_pred   = v * dt;
-          double y_pred   = 0;
-          double psi_pred = v * (-delta) / Lf * dt;
-
-          double v_pred = v + dt * throttle;
-          double cte_pred = cte + v * sin(epsi) * dt;
-          double epsi_pred = epsi + psi_pred;
 
           // build the state vector
           Eigen::VectorXd state(6);
-          state << x_pred, y_pred, psi_pred, v_pred, cte_pred, epsi_pred;
+          state << 0, 0, 0, v, cte, epsi;
 
+          // call MPC solver
           auto solution_vector = mpc.Solve(state, coeffs);
 
           double steer_value = solution_vector[0];
@@ -146,13 +147,13 @@ int main() {
           // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
           // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
           msgJson["steering_angle"] = rad2deg(steer_value) / 25;
-          msgJson["throttle"] = 0.3; // throttle_value;
+          msgJson["throttle"] = throttle_value;
 
           //Display the MPC predicted trajectory 
           vector<double> mpc_x_vals;
           vector<double> mpc_y_vals;
 
-          int N = 10;
+          int N = 8;
           for (int i = 0; i < N; ++i)
           {
             mpc_x_vals.push_back(solution_vector[2 + i]);
@@ -181,7 +182,6 @@ int main() {
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
 
-
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
           //std::cout << msg << std::endl;
 
@@ -191,11 +191,10 @@ int main() {
           auto duration = std::chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
 
           cout << "duration in ms: " << duration << std::endl;
-
-          /*int desired_cycle_time_ms = 100;
-          if (duration < 100)
+          
+          /*if (duration < desired_mpc_cycle_time_ms)
           {
-            this_thread::sleep_for(chrono::milliseconds(desired_cycle_time_ms - duration)); // TODO
+            this_thread::sleep_for(chrono::milliseconds(desired_mpc_cycle_time_ms - duration));
           }*/
 
           // Latency
@@ -207,7 +206,8 @@ int main() {
           //
           // NOTE: REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
           // SUBMITTING.
-          this_thread::sleep_for(chrono::milliseconds(100)); // TODO
+          this_thread::sleep_for(chrono::milliseconds(100)); 
+
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
         }
       } else {

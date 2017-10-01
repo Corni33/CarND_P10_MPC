@@ -5,8 +5,8 @@
 
 //using CppAD::AD;
 
-size_t N = 10;
-double dt = 0.1;
+size_t N = 8;
+double dt = 0.15;
 
 // calculate start indices of variables
 size_t x_start      = 0 * N;
@@ -38,10 +38,9 @@ class FG_eval {
 
   double c_state = 1.0;
   double c_act = 30.0;
-  double c_act_seq = 10.0;
+  double c_act_seq = 30.0;
 
-  // TODO: adapt velocity dynamically based on curvature
-  double v_target = 30;
+  double v_target = 50 * 0.44704; // 50 mph
 
   typedef CPPAD_TESTVECTOR(CppAD::AD<double>) ADvector;
 
@@ -60,13 +59,13 @@ class FG_eval {
     for (int t = 0; t < N; t++) {
       fg[0] += c_state*CppAD::pow(vars[cte_start + t], 2);
       fg[0] += c_state*CppAD::pow(vars[epsi_start + t], 2);
-      fg[0] += c_state*CppAD::pow(vars[v_start + t] - v_target, 2);
+      fg[0] += 3 * c_state*CppAD::pow(vars[v_start + t] - v_target, 2);
     }
 
     // Minimize the use of actuators.
     for (int t = 0; t < N - 1; t++) {
       fg[0] += c_act*CppAD::pow(vars[delta_start + t], 2);
-      fg[0] += c_act*CppAD::pow(vars[a_start + t], 2);
+      fg[0] += 0.5 * c_act*CppAD::pow(vars[a_start + t], 2);
     }
 
     // Minimize the value gap between sequential actuations.
@@ -107,9 +106,6 @@ class FG_eval {
       // Only consider the actuation at time t.
       CppAD::AD<double> delta0 = vars[delta_start + t - 1];
       CppAD::AD<double> a0 = vars[a_start + t - 1];
-
-      //CppAD::AD<double> f0 = coeffs[0] + coeffs[1] * x0;
-      //CppAD::AD<double> psides0 = CppAD::atan(coeffs[1]);
 
       CppAD::AD<double> f0 = coeffs[0] + coeffs[1] * x0 + coeffs[2] * x0*x0 + coeffs[3] * x0*x0*x0;
       CppAD::AD<double> psides0 = CppAD::atan(3.0 * coeffs[3] * x0 * x0 + 2.0 * coeffs[2] * x0 + coeffs[1]);
@@ -238,9 +234,10 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   // magnitude.
   options += "Sparse  true        forward\n";
   options += "Sparse  true        reverse\n";
-  // NOTE: Currently the solver has a maximum time limit of 0.5 seconds.
+  // NOTE: Currently the solver has a maximum time limit of 0.1 seconds.
   // Change this as you see fit.
   options += "Numeric max_cpu_time          0.5\n";
+  //options += "Numeric max_cpu_time          0.5\n Integer max_iter    30\n";
 
   // place to return solution
   CppAD::ipopt::solve_result<Dvector> solution;
